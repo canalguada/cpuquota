@@ -1,0 +1,87 @@
+#!/bin/sh
+# vim: set ft=sh fdm=indent ai ts=2 sw=2 tw=79 noet:
+
+PROG="$(basename "$0")"
+QUOTA=${PROG##Cpu}
+QUIET=""
+VERBOSE=1
+SLICE=0
+
+# ANSI escape codes
+# Colors
+# COLORR=`tput setaf 1`
+COLORG=`tput setaf 2`
+# COLORY=`tput setaf 3`
+# COLORB=`tput setaf 4`
+# COLORM=`tput setaf 5`
+# COLORW=`tput setaf 6`
+# More
+# MOVE_UP=`tput cuu 1`
+# CLEAR_LINE=`tput el 1`
+# BOLD=`tput bold`
+UNDERLINE=`tput smul`
+RESET=`tput sgr0`
+
+usage() {
+	cat <<-EOF
+	Usage: $PROG [-q|--quiet] [-s|--slice] [--] COMMAND [ARGS]...
+	EOF
+	return 0
+}
+
+while getopts ":-:hsq" option; do
+	case $option in
+		-)
+			case "$OPTARG" in
+				help) usage; exit 0 ;;
+				slice) SLICE=1 ;;
+				quiet) QUIET="-q" ;;
+				-) break ;;
+				*) error_exit 1 "unknown option '$OPTARG'." ;;
+			esac
+			;;
+		h) usage; exit 0 ;;
+		s) SLICE=1 ;;
+		q) QUIET="-q"; VERBOSE=0 ;;
+		\?) error_exit 1 "unknown option '$OPTARG'." ;;
+		:) error_exit 1 "missing argument for option '$OPTARG'." ;;
+	esac
+done
+shift $(($OPTIND - 1))
+
+if [ $# -lt 1 ]; then
+	usage
+	exit 1
+fi
+
+if [ -z "$(echo $QUOTA |awk '/^[0-9]+$/ {print $0}')" ]; then
+	QUOTA=$(
+	systemctl --user list-unit-files |
+		grep -oE -e "cpu[[:digit:]]*\.slice" |
+		sed 's/[^[:digit:]]//g' |
+		sort -n | head -n1
+	)
+fi
+
+QUOTA_ALL_CORES=$(( $(nproc --all) * $QUOTA ))
+RUN_ARGS="-p CPUQuota=${QUOTA_ALL_CORES}%"
+
+if [ $SLICE -eq 1 ]; then
+	UNIT="cpu${QUOTA}.slice"
+	if systemctl --user list-unit-files |
+		grep -oE -e "cpu[[:digit:]]*\.slice" |
+		grep -q "$UNIT"; then
+			RUN_ARGS="--slice=$UNIT"
+		else
+			echo "Can't find cpu${QUOTA}.slice file."
+			exit 1
+	fi
+fi
+
+[ $VERBOSE -ne 0 ] &&
+	echo "${COLORG}${PROG}:${RESET}" \
+	"systemd-run -G --user --scope" \
+	"${UNDERLINE}${COLORG}${RUN_ARGS}${RESET} $*" >&2
+
+exec systemd-run -G --user --scope $QUIET ${RUN_ARGS} "$@"
+
