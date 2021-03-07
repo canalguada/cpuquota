@@ -3,7 +3,7 @@
 
 PROG="$(basename "$0")"
 QUOTA=${PROG##Cpu}
-QUIET=""
+QUIET=
 VERBOSE=1
 SLICE=0
 
@@ -21,6 +21,12 @@ COLORG=`tput setaf 2`
 # BOLD=`tput bold`
 UNDERLINE=`tput smul`
 RESET=`tput sgr0`
+
+USER_OR_NOT=
+
+if [ $(id -u) -ne 0 ]; then
+	USER_OR_NOT="--user"
+fi
 
 usage() {
 	cat <<-EOF
@@ -56,7 +62,7 @@ fi
 
 if [ -z "$(echo $QUOTA |awk '/^[0-9]+$/ {print $0}')" ]; then
 	QUOTA=$(
-	systemctl --user list-unit-files |
+	systemctl $USER_OR_NOT list-unit-files |
 		grep -oE -e "cpu[[:digit:]]*\.slice" |
 		sed 's/[^[:digit:]]//g' |
 		sort -n | head -n1
@@ -68,7 +74,7 @@ RUN_ARGS="-p CPUQuota=${QUOTA_ALL_CORES}%"
 
 if [ $SLICE -eq 1 ]; then
 	UNIT="cpu${QUOTA}.slice"
-	if systemctl --user list-unit-files |
+	if systemctl $USER_OR_NOT list-unit-files |
 		grep -oE -e "cpu[[:digit:]]*\.slice" |
 		grep -q "$UNIT"; then
 			RUN_ARGS="--slice=$UNIT"
@@ -80,8 +86,8 @@ fi
 
 [ $VERBOSE -ne 0 ] &&
 	echo "${COLORG}${PROG}:${RESET}" \
-	"systemd-run -G --user --scope" \
+	"systemd-run -G $USER_OR_NOT --scope" \
 	"${UNDERLINE}${COLORG}${RUN_ARGS}${RESET} $*" >&2
 
-exec systemd-run -G --user --scope $QUIET ${RUN_ARGS} "$@"
+exec systemd-run -G $USER_OR_NOT --scope $QUIET ${RUN_ARGS} "$@"
 
